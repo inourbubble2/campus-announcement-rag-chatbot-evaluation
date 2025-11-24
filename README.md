@@ -10,6 +10,9 @@ RAG(Retrieval-Augmented Generation) 챗봇의 성능을 평가하기 위한 RAGA
   - **Answer Relevancy**: 답변이 질문과 얼마나 관련있는지
   - **Context Precision**: 검색된 컨텍스트의 정확도
   - **Context Recall**: Ground truth 대비 컨텍스트 재현율
+  - **URL Match**: 반환된 URL이 정답 URL과 일치하는지 (`list_id` + `seq` 조합 기준)
+- Conversation ID별 순차 처리로 대화 맥락 유지
+- 배치 처리를 통한 효율적인 병렬 평가
 - CSV 형식으로 평가 결과 저장 및 평균 점수 계산
 
 ## 요구사항
@@ -47,9 +50,11 @@ RESULT_PATH=data/golden_results.csv
 
 `data/golden_samples.csv` 파일을 다음 형식으로 준비하세요:
 
-| question | ground_truth | conversation_id |
-|----------|--------------|-----------------|
-| 질문 내용 | 정답 내용 | 대화 세션 ID |
+| conversation_id | question | ground_truth | url |
+|-----------------|----------|--------------|-----|
+| 대화 세션 ID | 질문 내용 | 정답 내용 | 정답 URL |
+
+**중요**: 같은 `conversation_id`를 가진 질문들은 순서대로 배치해야 합니다. 평가 시 같은 대화 내에서 순차적으로 처리되어 맥락이 유지됩니다.
 
 2. 챗봇 API 서버 실행
 
@@ -67,9 +72,12 @@ API는 다음 형식의 요청을 받아야 합니다:
 ```json
 {
   "answer": "답변 내용",
-  "contexts": ["컨텍스트1", "컨텍스트2", ...]
+  "contexts": ["컨텍스트1", "컨텍스트2", ...],
+  "urls": ["https://example.com/notice?list_id=FA1&seq=29038", ...]
 }
 ```
+
+**대화 맥락 유지**: API는 `conversation_id`를 활용하여 이전 대화 내용을 기억하고 있어야 합니다.
 
 3. 평가 실행
 
@@ -79,14 +87,49 @@ python evaluate.py
 
 ## 결과 확인
 
-평가가 완료되면 `data/golden_results.csv` 파일이 생성됩니다.
+평가가 완료되면 `data/golden_results_YYYYMMDDHHMMSS.csv` 파일이 생성됩니다.
 
 결과 파일에는 다음 정보가 포함됩니다:
 - 각 질문에 대한 평가 결과
-- 4가지 메트릭 점수 (0~1 범위)
+- 5가지 메트릭 점수 (0~1 범위)
+  - faithfulness
+  - answer_relevancy
+  - context_precision
+  - context_recall
+  - **url_match** (새로 추가)
+- 예측된 URLs와 정답 URL
 - 마지막 행에 각 메트릭의 평균 점수
+
+### URL Match 평가 기준
+
+URL 일치도는 다음과 같이 평가됩니다:
+- **1.0**: 예측 URL의 `list_id`와 `seq` 파라미터가 정답 URL과 모두 일치
+- **0.0**: 일치하지 않음
+
+예시:
+```
+정답: https://www.uos.ac.kr/korNotice/view.do?list_id=FA1&seq=29038&sort=16&...
+예측: https://www.uos.ac.kr/korNotice/view.do?list_id=FA1&seq=29038&identified=anonymous
+결과: 1.0 (같은 공지사항)
+```
 
 ## 평가 모델
 
 - LLM: `gpt-4o-mini`
 - Embeddings: `text-embedding-3-small`
+
+## 평가 프로세스
+
+1. **데이터 로드**: `golden_samples.csv`에서 질문-답변 쌍 로드
+2. **대화별 그룹핑**: `conversation_id`별로 질문 그룹핑
+3. **순차/병렬 처리**:
+   - 같은 대화 내 질문들: 순차 처리 (맥락 유지)
+   - 다른 대화 간: 병렬 처리 (성능 최적화)
+4. **RAGAS 평가**: 4개 메트릭 자동 평가
+5. **URL 일치도 계산**: `list_id`와 `seq` 조합으로 URL 매칭
+6. **결과 저장**: 타임스탬프가 포함된 CSV 파일로 저장
+
+## 주요 설정
+
+- `batch_size`: 동시 처리 conversation 수 (기본값: 10)
+- 같은 대화 내 질문 간 대기 시간: 0.5초
