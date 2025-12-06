@@ -5,12 +5,8 @@ Agentic RAG를 활용한 [챗봇](https://github.com/inourbubble2/campus-announc
 ## 기능
 
 - Golden dataset을 사용한 자동화된 RAG 평가
-- RAGAS 메트릭을 통한 다차원 성능 측정
-  - **Faithfulness**: 답변이 제공된 컨텍스트에 얼마나 충실한지
-  - **Answer Relevancy**: 답변이 질문과 얼마나 관련있는지
-  - **Context Precision**: 검색된 컨텍스트의 정확도
-  - **Context Recall**: Ground truth 대비 컨텍스트 재현율
-  - **URL Match**: 반환된 URL이 정답 URL과 일치하는지 (`list_id` + `seq` 조합 기준)
+- **Ragas Metrics**: Faithfulness, Answer Relevancy, Context Precision, Context Recall, Answer Correctness, URL Match
+- **DeepEval Metrics**: Faithfulness, Answer Relevancy, Contextual Precision, Contextual Recall, GEval (Correctness)
 - Conversation ID별 순차 처리로 대화 맥락 유지
 - 배치 처리를 통한 효율적인 병렬 평가
 - CSV 형식으로 평가 결과 저장 및 평균 점수 계산
@@ -99,16 +95,13 @@ python evaluate_deepeval.py
 
 결과 파일에는 다음 정보가 포함됩니다:
 - 각 질문에 대한 평가 결과
-- 5가지 메트릭 점수 (0~1 범위)
-  - faithfulness
-  - answer_relevancy
-  - context_precision
-  - context_recall
-  - **url_match** (새로 추가)
+- 메트릭 점수 (0~1 범위)
+  - **Ragas**: faithfulness, answer_relevancy, context_precision, context_recall, answer_correctness, url_match
+  - **DeepEval**: faithfulness, answer_relevancy, contextual_precision, contextual_recall, correctness (GEval)
 - 예측된 URLs와 정답 URL
 - 마지막 행에 각 메트릭의 평균 점수
 
-### URL Match 평가 기준
+### URL Match 평가 기준 (Ragas Only)
 
 URL 일치도는 다음과 같이 평가됩니다:
 - **1.0**: 예측 URL의 `list_id`와 `seq` 파라미터가 정답 URL과 모두 일치
