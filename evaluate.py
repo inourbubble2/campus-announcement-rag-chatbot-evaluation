@@ -11,6 +11,7 @@ from ragas.metrics import (
   answer_relevancy,
   context_precision,
   context_recall,
+  answer_correctness,
 )
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from dotenv import load_dotenv
@@ -164,6 +165,7 @@ def run_ragas_evaluation():
     answer_relevancy,
     context_precision,
     context_recall,
+    answer_correctness,
   ]
 
   logging.info("Running RAGAs evaluation with Ground Truth...")
@@ -192,7 +194,7 @@ def run_ragas_evaluation():
     axis=1
   )
 
-  metric_columns = ['faithfulness', 'answer_relevancy', 'context_precision', 'context_recall', 'url_match']
+  metric_columns = ['faithfulness', 'answer_relevancy', 'context_precision', 'context_recall', 'answer_correctness', 'url_match']
   avg_values = evaluation_results_df[metric_columns].mean()
 
   logging.info(f"=== URL Match Score: {avg_values['url_match']:.4f} ===")
@@ -206,6 +208,7 @@ def run_ragas_evaluation():
     'answer_relevancy': [avg_values['answer_relevancy']],
     'context_precision': [avg_values['context_precision']],
     'context_recall': [avg_values['context_recall']],
+    'answer_correctness': [avg_values['answer_correctness']],
     'url_match': [avg_values['url_match']]
   })
 
