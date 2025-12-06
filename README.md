@@ -1,6 +1,6 @@
-# Campus Noti RAGAS Evaluation
+# Campus Announcement RAG Chatbot Evaluation
 
-RAG(Retrieval-Augmented Generation) 챗봇의 성능을 평가하기 위한 RAGAS 기반 평가 도구입니다.
+Agentic RAG를 활용한 [챗봇](https://github.com/inourbubble2/campus-announcement-rag-chatbot)의 성능을 평가하기 위한 도구입니다. Ragas와 DeepEval 프레임워크를 모두 지원합니다.
 
 ## 기능
 
@@ -81,8 +81,16 @@ API는 다음 형식의 요청을 받아야 합니다:
 
 3. 평가 실행
 
+### Ragas 평가 실행
+
 ```bash
-python evaluate.py
+python evaluate_ragas.py
+```
+
+### DeepEval 평가 실행
+
+```bash
+python evaluate_deepeval.py
 ```
 
 ## 결과 확인
