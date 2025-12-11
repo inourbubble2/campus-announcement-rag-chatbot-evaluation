@@ -52,8 +52,8 @@ def run_deepeval_evaluation():
         ContextualRecallMetric(threshold=0.5, model=eval_model),
         GEval(
             name="Correctness",
-            criteria="Determine whether the actual output matches the expected output factually.",
-            evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+            criteria="Determine whether the actual output answers the input request correctly, using the expected output as a reference for facts. If the actual output correctly answers the input, score it 1.0. Additional helpful information is allowed and should NOT be penalized.",
+            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
             model=eval_model
         )
     ]
