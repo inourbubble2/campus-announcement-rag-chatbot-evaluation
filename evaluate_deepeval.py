@@ -1,8 +1,8 @@
 import pandas as pd
 import os
+import ast
 import logging
 import asyncio
-from datetime import datetime
 from dotenv import load_dotenv
 from utils import fetch_all_answers_in_batches
 
@@ -14,6 +14,7 @@ from deepeval.metrics import (
     ContextualRecallMetric,
     GEval
 )
+from deepeval.evaluate import AsyncConfig
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 
 load_dotenv()
@@ -25,11 +26,20 @@ RESULT_DIR = os.getenv("RESULT_DIR", "data")
 
 
 def run_deepeval_evaluation():
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    result_path = os.path.join(RESULT_DIR, f"deepeval_results_{timestamp}.csv")
-
     samples_df = pd.read_csv(SAMPLE_PATH)
-    eval_data = asyncio.run(fetch_all_answers_in_batches(samples_df, batch_size=10))
+    generated_path = os.path.join(RESULT_DIR, "deepeval_generated_answers.csv")
+    use_existing = os.getenv("USE_EXISTING_ANSWERS", "false").lower() == "true"
+
+    if use_existing and os.path.exists(generated_path):
+        logging.info(f"Loading existing answers from {generated_path}")
+        generated_df = pd.read_csv(generated_path)
+        generated_df['contexts'] = generated_df['contexts'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+        eval_data = generated_df.to_dict('records')
+    else:
+        eval_data = asyncio.run(fetch_all_answers_in_batches(samples_df, batch_size=10))
+        generated_df = pd.DataFrame(eval_data)
+        generated_df.to_csv(generated_path, index=False)
+        logging.info(f"Saved generated answers to {generated_path}")
 
     test_cases = []
     for row in eval_data:
@@ -59,7 +69,9 @@ def run_deepeval_evaluation():
     ]
 
     logging.info("Running DeepEval evaluation...")
-    evaluate(test_cases, metrics)
+
+    async_config = AsyncConfig(max_concurrent=3, throttle_value=2)
+    evaluate(test_cases, metrics, async_config=async_config)
 
 
 if __name__ == "__main__":
