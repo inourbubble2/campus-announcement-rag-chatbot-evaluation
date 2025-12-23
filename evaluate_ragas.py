@@ -1,108 +1,98 @@
-import pandas as pd
-import os
-import logging
 import asyncio
+import logging
+import os
 from datetime import datetime
+from typing import List, Optional
+
+import pandas as pd
 from datasets import Dataset
-from ragas import evaluate
-from ragas.metrics import (
-  faithfulness,
-  answer_relevancy,
-  context_precision,
-  context_recall,
-  answer_correctness,
-)
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from dotenv import load_dotenv
-from utils import (
-    calculate_url_match,
-    fetch_all_answers_in_batches
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from ragas import evaluate
+from ragas.metrics import context_precision, context_recall
+
+from utils import fetch_all_answers_in_batches
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-load_dotenv()
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-API_URL = os.getenv("API_URL", "http://localhost:8000/chat")
-SAMPLE_PATH = os.getenv("SAMPLE_PATH", "data/golden_samples.csv")
+# Constants
+SAMPLE_PATH = os.getenv("SAMPLE_PATH", "data/retrieval_evaluation_dataset.csv")
 RESULT_DIR = os.getenv("RESULT_DIR", "data")
+EVAL_MODEL = os.getenv("EVALUATION_MODEL", "gpt-4o-mini")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
-llm = ChatOpenAI(model="gpt-4o-mini")
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+# Initialize RAGAS models
+llm = ChatOpenAI(model=EVAL_MODEL)
+embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
 
-def run_ragas_evaluation():
-  """Golden dataset을 사용하여 RAGAS 평가를 실행"""
-  timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-  result_path = os.path.join(RESULT_DIR, f"golden_results_{timestamp}.csv")
+def run_ragas_context_eval() -> None:
+    """
+    Run RAGAS evaluation for context precision and recall using golden reference contexts.
+    """
+    os.makedirs(RESULT_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    result_path = os.path.join(RESULT_DIR, f"ragas_context_results_{timestamp}.csv")
 
-  samples_df = pd.read_csv(SAMPLE_PATH)
-  logging.info(f"Loaded {len(samples_df)} samples from {SAMPLE_PATH}")
+    try:
+        samples_df = pd.read_csv(SAMPLE_PATH)
+        logging.info(f"Loaded {len(samples_df)} samples from {SAMPLE_PATH}")
+    except FileNotFoundError:
+        logging.error(f"Sample file not found at {SAMPLE_PATH}")
+        return
 
-  eval_data = asyncio.run(fetch_all_answers_in_batches(samples_df, batch_size=10))
+    # Fetch answers and contexts asynchronously
+    eval_data = asyncio.run(fetch_all_answers_in_batches(samples_df, batch_size=10))
+    eval_df = pd.DataFrame(eval_data)
 
-  # 원본 데이터
-  eval_df = pd.DataFrame(eval_data)
+    if eval_df.empty:
+        logging.warning("No data fetched for evaluation.")
+        return
 
-  # RAGAS evaluation을 위한 dataset
-  dataset = Dataset.from_pandas(eval_df[['question', 'answer', 'contexts', 'ground_truth']])
+    # Create dataset for RAGAS
+    dataset = Dataset.from_pandas(eval_df[["question", "contexts", "reference"]])
 
-  metrics = [
-    faithfulness,
-    answer_relevancy,
-    context_precision,
-    context_recall,
-    answer_correctness,
-  ]
+    metrics = [context_precision, context_recall]
 
-  logging.info("Running RAGAs evaluation with Ground Truth...")
-  results = evaluate(
-      dataset=dataset,
-      metrics=metrics,
-      llm=llm,
-      embeddings=embeddings,
-  )
+    logging.info("Running RAGAS context evaluation...")
+    results = evaluate(
+        dataset=dataset,
+        metrics=metrics,
+        llm=llm,
+        embeddings=embeddings,
+    )
 
-  logging.info("=== Evaluation Results ===")
-  logging.info(results)
+    logging.info("=== RAGAS Context Evaluation Results ===")
+    logging.info(results)
 
-  evaluation_results_df = results.to_pandas()
+    # Combine results with original questions for analysis
+    results_df = results.to_pandas()
+    out_df = pd.concat(
+        [eval_df[["question"]].reset_index(drop=True), results_df.reset_index(drop=True)], 
+        axis=1
+    )
 
-  # 원본 데이터의 URL 정보를 evaluation 결과에 추가
-  evaluation_results_df['ground_truth_url'] = eval_df['ground_truth_url'].values
-  evaluation_results_df['predicted_urls'] = eval_df['predicted_urls'].values
+    # Calculate and append average metrics
+    metric_cols = [m.name for m in metrics]
+    avg_scores = out_df[metric_cols].mean(numeric_only=True)
+    
+    avg_row = {"question": "AVERAGE"}
+    for col in metric_cols:
+         avg_row[col] = avg_scores.get(col)
 
-  # URL 일치도 계산
-  evaluation_results_df['url_match'] = evaluation_results_df.apply(
-    lambda row: calculate_url_match(
-      row.get('predicted_urls', []),
-      row.get('ground_truth_url', '')
-    ),
-    axis=1
-  )
+    out_df = pd.concat([out_df, pd.DataFrame([avg_row])], ignore_index=True)
 
-  metric_columns = ['faithfulness', 'answer_relevancy', 'context_precision', 'context_recall', 'answer_correctness', 'url_match']
-  avg_values = evaluation_results_df[metric_columns].mean()
-
-  logging.info(f"=== URL Match Score: {avg_values['url_match']:.4f} ===")
-
-  avg_row = pd.DataFrame({
-    'user_input': [''],
-    'response': [''],
-    'retrieved_contexts': [''],
-    'reference': ['AVERAGE'],
-    'faithfulness': [avg_values['faithfulness']],
-    'answer_relevancy': [avg_values['answer_relevancy']],
-    'context_precision': [avg_values['context_precision']],
-    'context_recall': [avg_values['context_recall']],
-    'answer_correctness': [avg_values['answer_correctness']],
-    'url_match': [avg_values['url_match']]
-  })
-
-  evaluation_results_df = pd.concat([evaluation_results_df, avg_row], ignore_index=True)
-  evaluation_results_df.to_csv(result_path, index=False)
-
-  logging.info(f"Detailed results saved to {result_path}")
+    # Save results
+    out_df.to_csv(result_path, index=False)
+    logging.info(f"Detailed results saved to {result_path}")
 
 
 if __name__ == "__main__":
-  run_ragas_evaluation()
+    run_ragas_context_eval()

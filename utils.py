@@ -9,35 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 API_URL = os.getenv("API_URL", "http://localhost:8000/chat")
 
-def calculate_url_match(predicted_urls, ground_truth_url):
-  """
-  예측된 URL들과 ground truth URL의 일치도를 계산
-  list_id와 seq 파라미터 조합이 일치하면 같은 공지사항으로 판단
 
-  Returns:
-    float: 1.0 (list_id & seq 일치), 0.0 (일치 없음)
-  """
-  if not predicted_urls or not ground_truth_url:
-    return 0.0
-
-  parsed = urlparse(ground_truth_url)
-  params = parse_qs(parsed.query)
-  list_id = params.get('list_id', [None])[0]
-  seq = params.get('seq', [None])[0]
-
-  for url in predicted_urls:
-    predicted_parsed = urlparse(url)
-    predicted__params = parse_qs(predicted_parsed.query)
-    predicted_list_id = predicted__params.get('list_id', [None])[0]
-    predicted_seq = predicted__params.get('seq', [None])[0]
-
-    if predicted_list_id == list_id and predicted_seq == seq:
-      return 1.0
-
-  return 0.0
-
-
-async def call_chat_api_async(session, index, question, conversation_id, ground_truth, ground_truth_url):
+async def call_chat_api_async(session, index, question, conversation_id, reference):
   logging.info(f"Processing Q{index+1}: {question[:50]}...")
 
   try:
@@ -51,7 +24,6 @@ async def call_chat_api_async(session, index, question, conversation_id, ground_
 
       answer = data.get("answer", "")
       contexts = data.get("contexts", [])
-      urls = data.get("urls", [])
 
       logging.info(f"Processed A{index+1}: {answer.replace(chr(10), ' ')[:100]}...")
 
@@ -59,9 +31,7 @@ async def call_chat_api_async(session, index, question, conversation_id, ground_
         "question": question,
         "answer": answer,
         "contexts": contexts,
-        "ground_truth": ground_truth,
-        "ground_truth_url": ground_truth_url,
-        "predicted_urls": urls,
+        "reference": reference,
       }
   except Exception as e:
     logging.error(f"API error for Q{index+1}: {e}")
@@ -78,8 +48,7 @@ async def process_conversation_sequentially(session, conversation_group):
       index,
       row['question'],
       row['conversation_id'],
-      row['ground_truth'],
-      row['url']
+      row['reference'],
     )
     if result is not None:
       results.append(result)
